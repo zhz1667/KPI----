@@ -74,7 +74,14 @@ def main():
         st.warning('请输入用户名和密码')
     else:
         # 登录成功
-        authenticator.logout('退出', 'sidebar')
+        # 检查Cookie状态并处理退出逻辑
+        if st.sidebar.button('退出'):
+            try:
+                authenticator.cookie_manager.delete('kpi_cookie')
+            except:
+                pass
+            st.session_state.clear()
+            st.rerun()
         st.sidebar.title(f'欢迎, {name}')
         
         # 根据用户角色显示不同功能
