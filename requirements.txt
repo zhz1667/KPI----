@@ -1,0 +1,5 @@
+streamlit>=1.28.0
+streamlit-authenticator==0.2.3
+pyYAML>=6.0.1
+passlib>=1.7.4
+pandas>=2.1.2
