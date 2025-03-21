@@ -144,74 +144,176 @@ def main():
             filter_role = "全部"
             
             if menu_selection == '用户管理':
-                # 创建两列布局
-                col1, col2 = st.columns([2, 1])
+                st.title('用户管理')
                 
-                # 添加筛选功能
-                filter_col1, filter_col2, filter_col3 = st.columns(3)
-                with filter_col1:
-                    search_name = st.text_input('按姓名搜索', key='search_name')
-                with filter_col2:
-                    filter_department = st.selectbox('按部门筛选', ['全部'] + list(pd.read_sql_query('SELECT DISTINCT department FROM users', sqlite3.connect('kpi.db'))['department']), key='filter_department')
-                with filter_col3:
-                    filter_role = st.selectbox('按角色筛选', ['全部', 'admin', 'user'], key='filter_role')
-            
-            elif menu_selection == '考核模板':
                 # 创建两列布局
                 col1, col2 = st.columns([2, 1])
                 
                 with col1:
-                    st.subheader('考核模板列表')
-                    conn = sqlite3.connect('kpi.db')
-                    templates_df = pd.read_sql_query('SELECT * FROM kpi_templates', conn)
+                    # 添加筛选功能到一个容器中
+                    with st.container():
+                        st.subheader('筛选条件')
+                        filter_col1, filter_col2, filter_col3 = st.columns(3)
+                        with filter_col1:
+                            search_name = st.text_input('按姓名搜索', key='search_name')
+                        with filter_col2:
+                            filter_department = st.selectbox('按部门筛选', ['全部'] + list(pd.read_sql_query('SELECT DISTINCT department FROM users', sqlite3.connect('kpi.db'))['department']), key='filter_department')
+                        with filter_col3:
+                            filter_role = st.selectbox('按角色筛选', ['全部', 'admin', 'user'], key='filter_role')
                     
-                    for _, template in templates_df.iterrows():
-                        with st.expander(f"📋 {template['template_name']}"):
-                            st.write(f"描述: {template['description']}")
-                            st.write(f"创建时间: {template['created_at']}")
+                    # 用户列表
+                    st.subheader('用户列表')
+                conn = sqlite3.connect('kpi.db')
+                users_df = pd.read_sql_query('SELECT username, name, role, department, position, employee_id FROM users', conn)
+                conn.close()
+                
+                # 应用筛选条件
+                if search_name:
+                    users_df = users_df[users_df['name'].str.contains(search_name, na=False)]
+                if filter_department != '全部':
+                    users_df = users_df[users_df['department'] == filter_department]
+                if filter_role != '全部':
+                    users_df = users_df[users_df['role'] == filter_role]
+                
+                # 使用表格展示用户列表
+                for index, row in users_df.iterrows():
+                    with st.container():
+                        cols = st.columns([1, 1, 1, 1, 1, 1])
+                        with cols[0]:
+                            st.write(f"👤 {row['name']}")
+                        with cols[1]:
+                            st.write(f"部门: {row['department']}")
+                        with cols[2]:
+                            st.write(f"职位: {row['position']}")
+                        with cols[3]:
+                            st.write(f"工号: {row['employee_id']}")
+                        with cols[4]:
+                            if st.button('编辑', key=f'edit_user_{row["username"]}_{index}_{pd.Timestamp.now().timestamp():.0f}'):
+                                st.session_state['editing_user'] = row['username']
+                                st.session_state['edit_name'] = row['name']
+                                st.session_state['edit_department'] = row['department']
+                                st.session_state['edit_position'] = row['position']
+                                st.session_state['edit_employee_id'] = row['employee_id']
+                                st.session_state['edit_role'] = row['role']
+                        with cols[5]:
+                            if row['username'] != 'admin':
+                                if st.button('删除', key=f'delete_{row["username"]}_{index}_{pd.Timestamp.now().timestamp():.0f}'):
+                                    conn = sqlite3.connect('kpi.db')
+                                    c = conn.cursor()
+                                    c.execute('DELETE FROM users WHERE username = ?', (row['username'],))
+                                    conn.commit()
+                                    conn.close()
+                                    st.success('用户删除成功')
+                                    st.rerun()
+                    st.divider()
+                
+                # 如果没有用户显示提示信息
+                if len(users_df) == 0:
+                    st.info('没有找到符合条件的用户')
+            
+            with col2:
+                # 新增用户表单
+                st.subheader('新增用户')
+                new_username = st.text_input('用户名', key='new_username')
+                new_name = st.text_input('姓名', key='new_name')
+                new_password = st.text_input('密码', type='password', key='new_password')
+                new_role = st.selectbox('角色', ['user', 'admin'], key='new_role')
+                new_department = st.text_input('部门', key='new_department')
+                new_position = st.text_input('岗位', key='new_position')
+                new_employee_id = st.text_input('工号', key='new_employee_id')
+                
+                if st.button('添加用户'):
+                    if new_username and new_name and new_password:
+                        try:
+                            conn = sqlite3.connect('kpi.db')
+                            c = conn.cursor()
                             
-                            # 显示模板的考核指标
-                            indicators_df = pd.read_sql_query(
-                                'SELECT * FROM kpi_indicators WHERE template_id = ? ORDER BY sequence_number',
-                                conn,
-                                params=(template['template_id'],)
-                            )
+                            # 检查用户名是否已存在
+                            c.execute('SELECT username FROM users WHERE username = ?', (new_username,))
+                            if c.fetchone() is not None:
+                                st.error('用户名已存在')
+                            else:
+                                # 添加新用户
+                                hashed_password = stauth.Hasher([new_password]).generate()[0]
+                                c.execute('INSERT INTO users (username, name, password, role, department, position, employee_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                                        (new_username, new_name, hashed_password, new_role, new_department, new_position, new_employee_id))
+                                conn.commit()
+                                st.success('用户添加成功')
+                                st.rerun()
                             
-                            if not indicators_df.empty:
-                                st.write('考核指标:')
-                                for _, indicator in indicators_df.iterrows():
-                                    st.markdown(f"""---
-                                    - **序号:** {indicator['sequence_number']}
-                                    - **分类:** {indicator['category']}
-                                    - **指标名称:** {indicator['name']}
-                                    - **指标解释:** {indicator['description']}
-                                    - **评价标准:** {indicator['evaluation_criteria']}
-                                    - **权重:** {indicator['weight']}%
-                                    """)
-                            
-                            # 添加指标按钮
-                            if st.button('添加指标', key=f"add_indicator_{template['template_id']}"):
-                                st.session_state['editing_template'] = template['template_id']
-                            
-                            # 编辑模板按钮
-                            if st.button('编辑模板', key=f"edit_template_{template['template_id']}"):
+                            conn.close()
+                        except Exception as e:
+                            st.error(f'添加用户失败: {str(e)}')
+                    else:
+                        st.warning('请填写必要信息（用户名、姓名、密码）')
+            
+        elif menu_selection == '考核模板':
+            st.title('考核模板')
+            
+            # 创建两列布局
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                st.subheader('考核模板列表')
+                conn = sqlite3.connect('kpi.db')
+                templates_df = pd.read_sql_query('SELECT * FROM kpi_templates', conn)
+                    
+                for _, template in templates_df.iterrows():
+                    with st.container():
+                        cols = st.columns([2, 1, 1, 1])
+                        with cols[0]:
+                            st.write(f"📋 {template['template_name']}")
+                            st.caption(f"描述: {template['description']}")
+                        with cols[1]:
+                            if st.button('查看指标', key=f"view_indicator_{template['template_id']}"):
+                                st.session_state['viewing_template'] = template['template_id']
+                        with cols[2]:
+                            if st.button('编辑', key=f"edit_template_{template['template_id']}"):
                                 st.session_state['editing_template_info'] = {
                                     'template_id': template['template_id'],
                                     'template_name': template['template_name'],
                                     'description': template['description']
                                 }
+                        with cols[3]:
+                            if st.button('删除', key=f"delete_template_{template['template_id']}"):
+                                conn = sqlite3.connect('kpi.db')
+                                c = conn.cursor()
+                                c.execute('DELETE FROM kpi_indicators WHERE template_id = ?', (template['template_id'],))
+                                c.execute('DELETE FROM kpi_templates WHERE template_id = ?', (template['template_id'],))
+                                conn.commit()
+                                conn.close()
+                                st.success('模板删除成功')
+                                st.rerun()
+                            st.divider()
                             
-                            # 删除模板按钮
-                            if st.button('删除模板', key=f"delete_template_{template['template_id']}"):
-                                if st.button('确认删除', key=f"confirm_delete_{template['template_id']}"):
-                                    c = conn.cursor()
-                                    c.execute('DELETE FROM kpi_indicators WHERE template_id = ?', (template['template_id'],))
-                                    c.execute('DELETE FROM kpi_templates WHERE template_id = ?', (template['template_id'],))
-                                    conn.commit()
-                                    st.success('模板删除成功')
-                                    st.rerun()
-                                else:
-                                    st.warning('请确认是否删除该模板及其所有指标')
+                            # 显示模板的考核指标
+                            if 'viewing_template' in st.session_state and st.session_state['viewing_template'] == template['template_id']:
+                                indicators_df = pd.read_sql_query(
+                                    'SELECT * FROM kpi_indicators WHERE template_id = ? ORDER BY sequence_number',
+                                    conn,
+                                    params=(template['template_id'],)
+                                )
+                                
+                                if not indicators_df.empty:
+                                    st.write('考核指标:')
+                                    for _, indicator in indicators_df.iterrows():
+                                        with st.container():
+                                            ind_cols = st.columns([1, 2, 2, 1])
+                                            with ind_cols[0]:
+                                                st.write(f"序号: {indicator['sequence_number']}")
+                                                st.write(f"分类: {indicator['category']}")
+                                            with ind_cols[1]:
+                                                st.write(f"指标名称: {indicator['name']}")
+                                                st.write(f"指标解释: {indicator['description']}")
+                                            with ind_cols[2]:
+                                                st.write(f"评价标准: {indicator['evaluation_criteria']}")
+                                            with ind_cols[3]:
+                                                st.write(f"权重: {indicator['weight']}%")
+                                            st.divider()
+                                
+                                if st.button('添加指标', key=f"add_indicator_{template['template_id']}"):
+                                    st.session_state['editing_template'] = template['template_id']
+                    
                     conn.close()
                     
                     if templates_df.empty:
@@ -308,7 +410,7 @@ def main():
                         # 编辑和删除按钮
                         col_edit, col_delete = st.columns(2)
                         with col_edit:
-                            if st.button('编辑', key=f'edit_{row["username"]}'):
+                            if st.button('编辑', key=f'edit_user_{row["username"]}'):
                                 st.session_state['editing_user'] = row['username']
                                 st.session_state['edit_name'] = row['name']
                                 st.session_state['edit_department'] = row['department']
@@ -336,15 +438,15 @@ def main():
             with col2:
                 # 新增用户表单
                 st.subheader('新增用户')
-                new_username = st.text_input('用户名', key='new_username')
-                new_name = st.text_input('姓名', key='new_name')
-                new_password = st.text_input('密码', type='password', key='new_password')
-                new_role = st.selectbox('角色', ['user', 'admin'], key='new_role')
-                new_department = st.text_input('部门', key='new_department')
-                new_position = st.text_input('岗位', key='new_position')
-                new_employee_id = st.text_input('工号', key='new_employee_id')
+                new_username = st.text_input('用户名', key='add_user_username')
+                new_name = st.text_input('姓名', key='add_user_name')
+                new_password = st.text_input('密码', type='password', key='add_user_password')
+                new_role = st.selectbox('角色', ['user', 'admin'], key='add_user_role')
+                new_department = st.text_input('部门', key='add_user_department')
+                new_position = st.text_input('岗位', key='add_user_position')
+                new_employee_id = st.text_input('工号', key='add_user_employee_id')
                 
-                if st.button('添加用户'):
+                if st.button('添加用户', key='add_user_btn'):
                     if new_username and new_name and new_password:
                         try:
                             conn = sqlite3.connect('kpi.db')
@@ -368,7 +470,6 @@ def main():
                             st.error(f'添加用户失败: {str(e)}')
                     else:
                         st.warning('请填写必要信息（用户名、姓名、密码）')
-
         else:
             st.title('KPI考核系统')
             st.info('普通用户功能开发中...')
