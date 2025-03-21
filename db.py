@@ -186,10 +186,27 @@ def get_credentials():
     return credentials
 
 # 获取所有模板
-def get_all_templates():
+def get_all_templates(search_name="", filter_date="全部"):
     conn = get_db_connection()
     templates_df = pd.read_sql_query('SELECT * FROM kpi_templates', conn)
     conn.close()
+    
+    # 应用筛选条件
+    if search_name:
+        templates_df = templates_df[templates_df['template_name'].str.contains(search_name, na=False)]
+    
+    # 按创建时间筛选
+    if filter_date != '全部':
+        if filter_date == '最近一周':
+            one_week_ago = pd.Timestamp.now() - pd.Timedelta(days=7)
+            templates_df = templates_df[pd.to_datetime(templates_df['created_at']) >= one_week_ago]
+        elif filter_date == '最近一个月':
+            one_month_ago = pd.Timestamp.now() - pd.Timedelta(days=30)
+            templates_df = templates_df[pd.to_datetime(templates_df['created_at']) >= one_month_ago]
+        elif filter_date == '最近三个月':
+            three_months_ago = pd.Timestamp.now() - pd.Timedelta(days=90)
+            templates_df = templates_df[pd.to_datetime(templates_df['created_at']) >= three_months_ago]
+    
     return templates_df
 
 # 获取模板的指标
